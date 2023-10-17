@@ -31,6 +31,7 @@ mod mock;
 mod tests;
 mod events;
 
+use pallet_session::pallet::{Pallet as PalletSession, Config as ConfigSession};
 use sp_std::str::FromStr;
 use ethereum_types::{Address, Bloom, BloomInput, H160, H256, H64, U256};
 use evm::ExitReason;
@@ -48,11 +49,12 @@ use frame_support::{
 	weights::Weight,
 	log
 };
+use frame_system::RawOrigin as SystemRawOrigin;
 use frame_system::{pallet_prelude::OriginFor, CheckWeight, WeightInfo};
 use pallet_evm::{BalanceOf, BlockHashMapping, FeeCalculator, GasWeightMapping, Runner};
 use sp_runtime::{generic::DigestItem, traits::{DispatchInfoOf, Dispatchable, One, Saturating, UniqueSaturatedInto, Zero}, transaction_validity::{
 	InvalidTransaction, TransactionValidity, TransactionValidityError, ValidTransactionBuilder,
-}, DispatchErrorWithPostInfo, RuntimeDebug, FixedPointOperand};
+}, DispatchErrorWithPostInfo, RuntimeDebug, FixedPointOperand, DispatchResult};
 use sp_std::{marker::PhantomData, prelude::*};
 
 pub use ethereum::{
@@ -177,6 +179,27 @@ pub enum PostLogContent {
 pub use self::pallet::*;
 use sp_staking::StakingInterface;
 use pallet_evm::AddressMapping;
+use crate::ReturnValue::Hash;
+
+pub trait ValidateInterface {
+	type AccountId;
+
+	fn validate(who: &Self::AccountId) -> DispatchResult;
+}
+
+pub trait SetKeys<T: ConfigSession> {
+	type AccountId;
+
+	fn set_keys(who: &Self::AccountId, keys: T::Keys, proof: Vec<u8>) -> DispatchResult;
+}
+
+impl<T: ConfigSession> SetKeys<T> for PalletSession<T> {
+	type AccountId = T::AccountId;
+
+	fn set_keys(who: &Self::AccountId, keys: T::Keys, proof: Vec<u8>) -> DispatchResult {
+		Self::set_keys(SystemRawOrigin::Signed(who.clone()).into(), keys, proof)
+	}
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -194,7 +217,7 @@ pub mod pallet {
 	#[pallet::origin]
 	pub type Origin = RawOrigin;
 	#[pallet::config]
-	pub trait Config: frame_system::Config<AccountId = AccountId32> + pallet_timestamp::Config + pallet_evm::Config {
+	pub trait Config: frame_system::Config<AccountId = AccountId32> + pallet_timestamp::Config + pallet_evm::Config + pallet_session::Config {
 		/// The overarching event type.
 		type RuntimeEvent: From<Event> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		/// How Ethereum state root is calculated.
@@ -202,7 +225,9 @@ pub mod pallet {
 		/// What's included in the PostLog.
 		type PostLogContent: Get<PostLogContent>;
 
-		type Staking: StakingInterface<Balance = <<Self as pallet::Config>::Currency as Currency<Self::AccountId>>::Balance, AccountId = Self::AccountId>;
+		type Staking: StakingInterface<Balance = <<Self as pallet::Config>::Currency as Currency<Self::AccountId>>::Balance, AccountId = Self::AccountId> + ValidateInterface<AccountId = Self::AccountId>;
+
+		type SetKeys: SetKeys<Self>;
 
 		type AddressMapping: AddressMapping<Self::AccountId>;
 
@@ -743,7 +768,7 @@ impl<T: Config> Pallet<T> where {
 					config.as_ref().unwrap_or_else(|| T::config()),
 				) {
 					Ok(res) => {
-						Self::hook_staking(from, &res, value);
+						Self::hook_staking(from, &res, value)?;
 						res
 					},
 					Err(e) => {
@@ -797,23 +822,22 @@ impl<T: Config> Pallet<T> where {
 	// 53, 67, 116, 106, 100, 84, 117, 98, 75, 118, 110, 55, 104, 119, 101, 112, 51, 55, 74, 122, 109, 85, 72, 120, 70, 101, 106, 72, 102, 80, 56, 65,
 	// 53, 57, 122, 53, 104, 52, 71, 75, 112, 65, 104, 57, 72, 105, 88, 117, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
 
-fn hook_staking(sender: Address, res: &CallInfo, value: U256) {
+fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), DispatchErrorWithPostInfo<PostDispatchInfo>> {
 	match res.exit_reason {
 			ExitReason::Succeed(_) => {}
-			_ => { return;}
+			_ => { return Ok(());}
 		}
 
 		let staking_contract: Address = Address::from([0x73, 0x03, 0xC6, 0xC7, 0xf4, 0x94, 0x00, 0xF4, 0x03, 0xB3, 0xe0, 0x81, 0x3c, 0x1F, 0x8b, 0xE4, 0xa7, 0x2f, 0x9B, 0xa0]);
 		let bond_topic: H256 = H256::from([251, 65, 54, 76, 232, 149, 61, 177, 88, 215, 233, 154, 74, 218, 218, 203, 84, 197, 35, 20, 97, 19, 25, 157, 100, 251, 73, 17, 94, 105, 130, 224]);
 		let unbond_topic: H256 = H256::from([0x87,0xf2,0x40,0x05,0xea,0xe1,0xcc,0x90,0x75,0x40,0x34,0xc9,0x63,0xde,0x08,0xca,0x37,0xa6,0xd7,0x31,0xbb,0xac,0xed,0x83,0x75,0x11,0xd8,0xd1,0x3d,0x2e,0x06,0x4f]);
-		// let unbond_topic: H256 = H256::from([135, 242, 64, 5, 234, 225, 204, 144, 117, 64, 52, 201, 99, 222, 8, 202, 55, 166, 215, 49, 187, 172, 237, 131, 117, 17, 216, 211, 210, 224, 100, 240]);
 		let withdraw_unbonded_topic: H256 = H256::from([0x3c,0x58,0x9a,0x73,0x6b,0x7e,0xd0,0x36,0x8f,0xcd,0xd8,0x6d,0x10,0x5b,0x45,0xf0,0xab,0x06,0xd8,0xc8,0xcc,0xb6,0x31,0x20,0x7b,0x4c,0xa1,0xed,0x09,0xda,0x2f,0x41]);
-		// let withdraw_unbonded_topic: H256 = H256::from([60, 88, 154, 115, 107, 126, 208, 54, 143, 205, 216, 109, 16, 91, 69, 240, 171, 6, 216, 200, 204, 182, 49, 32, 123, 76, 161, 237, 9, 218, 47, 65]);
 		let bond_extra_topic: H256 = H256::from([0xd5,0xcf,0x55,0x59,0xea,0x79,0x35,0x4a,0x05,0x85,0xe5,0x2a,0x88,0xb0,0x55,0x19,0x5f,0x5e,0x50,0xbf,0xb9,0x4e,0x13,0x6b,0x51,0x95,0x35,0xd9,0x05,0xb2,0xbc,0x4e]);
-		let nominate_topic: H256 = H256::from([0xf6, 0xde, 0xf5, 0x78, 0x15, 0x99, 0x0a, 0x86, 0x15, 0x15, 0xfb, 0x57, 0x94, 0xdf, 0xcd, 0xa2, 0xe2, 0x36, 0x7e, 0x48, 0xf0, 0xa7, 0x9e, 0x78, 0x8d, 0x09, 0x05, 0xc3, 0xf9, 0xcc, 0xda, 0x62]);
-		// dev
-		// let validator: AccountId32 = AccountId32::from([0xbe,0x5d,0xdb,0x15,0x79,0xb7,0x2e,0x84,0x52,0x4f,0xc2,0x9e,0x78,0x60,0x9e,0x3c,0xaf,0x42,0xe8,0x5a,0xa1,0x18,0xeb,0xfe,0x0b,0x0a,0xd4,0x04,0xb5,0xbd,0xd2,0x5f]);
-		// release
+		let nominate_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
+
+		let validate_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
+		let set_keys_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
+
 		let validator: AccountId32 = AccountId32::from(
 			[0x24,0xa1,0xbe,0xe3,0x13,0x8f,0xd6,0x7f,0x3d,0x19,0x56,0xf8,0xc2,0x83,0x33,0x53,0x7d,0x1d,0xcd,0x38,0xa4,0x82,0x57,0xeb,0xdb,0xec,0xfb,0x77,0xd7,0x44,0xf7,0x41]);
 
@@ -830,49 +854,105 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) {
 					log::info!("Bonded: staking_log: {:?}", staking_log);
 					<T as Config>::Staking::bond(
 						&staking_account,
-						u128::from_be_bytes(value.chunks(16).nth(1).unwrap().try_into().unwrap()),
+						u128::from_be_bytes(value.chunks(16).nth(1).ok_or(DispatchErrorWithPostInfo::from("Wrong staking event"))?
+							.try_into()
+							.map_err(|err| {
+								log::error!("Error bond: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong bond event")
+							})?
+						),
 						&staking_account,
-					).unwrap();
+					)?;
 				}
 				log if log.topics.contains(&nominate_topic) => {
 					log::info!("Nominated: staking_log: {:?}", staking_log);
 					let validator_clone = validator.clone();
 
 					let raw_log = ethabi::RawLog::from((log.topics.clone(), log.data.clone()));
-					let validators = events::nominated::parse_log(raw_log).unwrap().param1.iter().map(|validator| array_bytes::hex_n_into::<AccountId32, 32>(validator).unwrap()).collect();
+					let validators = events::nominated::parse_log(raw_log)
+						.map_err(|err| {
+							log::error!("Error Nominated: {:?}", err);
+							DispatchErrorWithPostInfo::from("Wrong Nominated event")
+						})?
+						.validators.iter().map(|validator| AccountId32::from(validator.0)).collect();
 
 					<T as Config>::Staking::nominate(
 						&staking_account,
 						validators,
-					).unwrap();
+					)?;
 				}
 				log if log.topics.contains(&bond_extra_topic) => {
 					log::info!("Extra bonded: staking_log: {:?}", staking_log);
 					let value = log.topics[1].0;
 					<T as Config>::Staking::bond_extra(
 						&staking_account,
-						u128::from_be_bytes(value.chunks(16).nth(1).unwrap().try_into().unwrap())
-					).unwrap();
+						u128::from_be_bytes(value.chunks(16).nth(1)
+							.ok_or(DispatchErrorWithPostInfo::from("Wrong bond extra event"))?
+							.try_into()
+							.map_err(|err| {
+								log::error!("Error bond extra: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong bond extra event")
+							})?
+						)
+					)?;
 				}
 				log if log.topics.contains(&unbond_topic) => {
 					log::info!("Unbonded: staking_log: {:?}", staking_log);
 					let value = &log.data;
 					<T as Config>::Staking::unbond(
 						&staking_account,
-						u128::from_be_bytes(value.chunks(16).nth(1).unwrap().try_into().unwrap())
-					).unwrap();
+						u128::from_be_bytes(value.chunks(16).nth(1)
+							.ok_or(DispatchErrorWithPostInfo::from("Wrong unbond event"))?
+							.try_into()
+							.map_err(|err| {
+								log::error!("Error Unbonded: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong Unbonded unbond event")
+							})?
+						)
+					)?;
 				}
 				log if log.topics.contains(&withdraw_unbonded_topic) => {
 					let value = log.topics[1].0;
 					log::info!("Withdraw_unbonded: staking_log: {:?}", staking_log);
 					<T as Config>::Staking::withdraw_unbonded(
 						staking_account.clone(),
-						u32::from_be_bytes(value.chunks(4).nth(7).unwrap().try_into().unwrap())
-					).unwrap();
+						u32::from_be_bytes(value.chunks(4).nth(7)
+							.ok_or(DispatchErrorWithPostInfo::from("Wrong withdraw unbond event"))?
+							.try_into()
+							.map_err(|err| {
+								log::error!("Error Withdraw_unbonded: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong withdraw unbond event")
+							})?
+						)
+					)?;
+				}
+				log if log.topics.contains(&validate_topic) => {
+					let value = log.topics[1].0;
+					log::info!("Withdraw_unbonded: staking_log: {:?}", staking_log);
+					<T as Config>::Staking::validate(
+					&staking_account,
+					)?;
+				}
+				log if log.topics.contains(&set_keys_topic) => {
+					let value = log.topics[1].0;
+					log::info!("Withdraw_unbonded: staking_log: {:?}", staking_log);
+					<T as Config>::Staking::withdraw_unbonded(
+						staking_account.clone(),
+						u32::from_be_bytes(value.chunks(4).nth(7)
+							.ok_or(DispatchErrorWithPostInfo::from("Wrong withdraw unbond event"))?
+							.try_into()
+							.map_err(|err| {
+								log::error!("Error Withdraw_unbonded: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong withdraw unbond event")
+							})?
+						)
+					)?;
 				}
 				_ => {}
 			}
 		}
+
+		Ok(())
 	}
 
 	/// Validate an Ethereum transaction already in block

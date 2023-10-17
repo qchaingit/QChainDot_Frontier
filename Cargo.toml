@@ -110,6 +110,8 @@ pallet-transaction-payment = { version = "4.0.0-dev", git = "https://github.com/
 pallet-transaction-payment-rpc = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375", default-features = false }
 pallet-utility = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375", default-features = false }
+pallet-session = { version = "4.0.0-dev",features = [ "historical" ], git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375", default-features = false }
+
 # Substrate Utility
 frame-benchmarking-cli = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375" }
 prometheus-endpoint = { package = "substrate-prometheus-endpoint", version = "0.10.0-dev", git = "https://github.com/paritytech/substrate", rev = "1837f423b494254e1d27834b1c9da34b2c0c2375" }

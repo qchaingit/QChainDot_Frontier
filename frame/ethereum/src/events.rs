@@ -146,14 +146,14 @@ pub mod nominated {
             inputs: <[_]>::into_vec(
                     Box::new([
                     ethabi::EventParam {
-                        name: "".to_owned(),
+                        name: "add".to_owned(),
                         kind: ethabi::ParamType::Address,
                         indexed: false,
                     },
                     ethabi::EventParam {
-                        name: "".to_owned(),
+                        name: "validators".to_owned(),
                         kind: ethabi::ParamType::Array(
-                            Box::new(ethabi::ParamType::String),
+                            Box::new(ethabi::ParamType::FixedBytes(32usize)),
                         ),
                         indexed: false,
                     },
@@ -178,6 +178,77 @@ pub mod nominated {
         let e = event();
         let mut log = e.parse_log(log)?.params.into_iter();
         let result = Nominated {
+            add: log
+                .next()
+                .expect(INTERNAL_ERR)
+                .value
+                .into_address()
+                .expect(INTERNAL_ERR),
+            validators: log
+                .next()
+                .expect(INTERNAL_ERR)
+                .value
+                .into_array()
+                .expect(INTERNAL_ERR)
+                .into_iter()
+                .map(|inner| {
+                    let mut result = [0u8; 32];
+                    let v = inner.into_fixed_bytes().expect(INTERNAL_ERR);
+                    result.copy_from_slice(&v);
+                    ethabi::Hash::from(result)
+                })
+                .collect(),
+        };
+        Ok(result)
+    }
+}
+pub mod setted_keys {
+    use crate::events::SettedKeys;
+    use sp_std::borrow::ToOwned;
+    use ethabi;
+    use crate::Box;
+    use super::INTERNAL_ERR;
+    pub fn event() -> ethabi::Event {
+        ethabi::Event {
+            name: "SettedKeys".into(),
+            inputs: <[_]>::into_vec(
+                    Box::new([
+                    ethabi::EventParam {
+                        name: "".to_owned(),
+                        kind: ethabi::ParamType::Address,
+                        indexed: false,
+                    },
+                    ethabi::EventParam {
+                        name: "".to_owned(),
+                        kind: ethabi::ParamType::Bytes,
+                        indexed: false,
+                    },
+                    ethabi::EventParam {
+                        name: "".to_owned(),
+                        kind: ethabi::ParamType::Bytes,
+                        indexed: false,
+                    },
+                ]),
+            ),
+            anonymous: false,
+        }
+    }
+    pub fn filter() -> ethabi::TopicFilter {
+        let raw = ethabi::RawTopicFilter {
+            ..Default::default()
+        };
+        let e = event();
+        e.filter(raw).expect(INTERNAL_ERR)
+    }
+    pub fn wildcard_filter() -> ethabi::TopicFilter {
+        filter()
+    }
+    pub fn parse_log(
+        log: ethabi::RawLog,
+    ) -> ethabi::Result<SettedKeys> {
+        let e = event();
+        let mut log = e.parse_log(log)?.params.into_iter();
+        let result = SettedKeys {
             param0: log
                 .next()
                 .expect(INTERNAL_ERR)
@@ -188,83 +259,18 @@ pub mod nominated {
                 .next()
                 .expect(INTERNAL_ERR)
                 .value
-                .into_array()
+                .into_bytes()
+                .expect(INTERNAL_ERR),
+            param2: log
+                .next()
                 .expect(INTERNAL_ERR)
-                .into_iter()
-                .map(|inner| inner.into_string().expect(INTERNAL_ERR))
-                .collect(),
+                .value
+                .into_bytes()
+                .expect(INTERNAL_ERR),
         };
         Ok(result)
     }
 }
-// pub mod setted_keys {
-//     use sp_std::borrow::ToOwned;
-//     use ethabi;
-//     use super::INTERNAL_ERR;
-//     pub fn event() -> ethabi::Event {
-//         ethabi::Event {
-//             name: "SettedKeys".into(),
-//             inputs: <[_]>::into_vec(
-//                 #[rustc_box]
-//                     Box::new([
-//                     ethabi::EventParam {
-//                         name: "".to_owned(),
-//                         kind: ethabi::ParamType::Address,
-//                         indexed: false,
-//                     },
-//                     ethabi::EventParam {
-//                         name: "".to_owned(),
-//                         kind: ethabi::ParamType::Bytes,
-//                         indexed: false,
-//                     },
-//                     ethabi::EventParam {
-//                         name: "".to_owned(),
-//                         kind: ethabi::ParamType::Bytes,
-//                         indexed: false,
-//                     },
-//                 ]),
-//             ),
-//             anonymous: false,
-//         }
-//     }
-//     pub fn filter() -> ethabi::TopicFilter {
-//         let raw = ethabi::RawTopicFilter {
-//             ..Default::default()
-//         };
-//         let e = event();
-//         e.filter(raw).expect(INTERNAL_ERR)
-//     }
-//     pub fn wildcard_filter() -> ethabi::TopicFilter {
-//         filter()
-//     }
-//     pub fn parse_log(
-//         log: ethabi::RawLog,
-//     ) -> ethabi::Result<super::super::logs::SettedKeys> {
-//         let e = event();
-//         let mut log = e.parse_log(log)?.params.into_iter();
-//         let result = super::super::logs::SettedKeys {
-//             param0: log
-//                 .next()
-//                 .expect(INTERNAL_ERR)
-//                 .value
-//                 .into_address()
-//                 .expect(INTERNAL_ERR),
-//             param1: log
-//                 .next()
-//                 .expect(INTERNAL_ERR)
-//                 .value
-//                 .into_bytes()
-//                 .expect(INTERNAL_ERR),
-//             param2: log
-//                 .next()
-//                 .expect(INTERNAL_ERR)
-//                 .value
-//                 .into_bytes()
-//                 .expect(INTERNAL_ERR),
-//         };
-//         Ok(result)
-//     }
-// }
 // pub mod un_bonded {
 //     use sp_std::borrow::ToOwned;
 //     use ethabi;
@@ -498,8 +504,8 @@ pub mod nominated {
 use crate::Vec;
 use scale_info::prelude::string::String;
 pub struct Nominated {
-    pub param0: ethabi::Address,
-    pub param1: Vec<String>,
+    pub add: ethabi::Address,
+    pub validators: Vec<ethabi::Hash>,
 }
 //
 // #[automatically_derived]
@@ -513,11 +519,11 @@ pub struct Nominated {
 //     }
 // }
 //
-// pub struct SettedKeys {
-//     pub param0: ethabi::Address,
-//     pub param1: ethabi::Bytes,
-//     pub param2: ethabi::Bytes,
-// }
+pub struct SettedKeys {
+    pub param0: ethabi::Address,
+    pub param1: ethabi::Bytes,
+    pub param2: ethabi::Bytes,
+}
 //
 // #[automatically_derived]
 // impl ::core::clone::Clone for SettedKeys {

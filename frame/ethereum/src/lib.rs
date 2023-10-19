@@ -227,7 +227,7 @@ pub mod pallet {
 
 		type Staking: StakingInterface<Balance = <<Self as pallet::Config>::Currency as Currency<Self::AccountId>>::Balance, AccountId = Self::AccountId> + ValidateInterface<AccountId = Self::AccountId>;
 
-		type SetKeys: SetKeys<Self>;
+		type SetKeys: SetKeys<Self, AccountId = Self::AccountId>;
 
 		type AddressMapping: AddressMapping<Self::AccountId>;
 
@@ -829,19 +829,20 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 		}
 
 		let staking_contract: Address = Address::from([0x73, 0x03, 0xC6, 0xC7, 0xf4, 0x94, 0x00, 0xF4, 0x03, 0xB3, 0xe0, 0x81, 0x3c, 0x1F, 0x8b, 0xE4, 0xa7, 0x2f, 0x9B, 0xa0]);
-		let bond_topic: H256 = H256::from([251, 65, 54, 76, 232, 149, 61, 177, 88, 215, 233, 154, 74, 218, 218, 203, 84, 197, 35, 20, 97, 19, 25, 157, 100, 251, 73, 17, 94, 105, 130, 224]);
+		let	bond_topic = H256::from(array_bytes::hex2array("0x24fb2f2f9b018ccfbff96c5354505821edee1c6e340fef1ab3c68c9c72f57539").unwrap());
+		// let bond_topic: H256 = H256::from([251, 65, 54, 76, 232, 149, 61, 177, 88, 215, 233, 154, 74, 218, 218, 203, 84, 197, 35, 20, 97, 19, 25, 157, 100, 251, 73, 17, 94, 105, 130, 224]);
 		let unbond_topic: H256 = H256::from([0x87,0xf2,0x40,0x05,0xea,0xe1,0xcc,0x90,0x75,0x40,0x34,0xc9,0x63,0xde,0x08,0xca,0x37,0xa6,0xd7,0x31,0xbb,0xac,0xed,0x83,0x75,0x11,0xd8,0xd1,0x3d,0x2e,0x06,0x4f]);
 		let withdraw_unbonded_topic: H256 = H256::from([0x3c,0x58,0x9a,0x73,0x6b,0x7e,0xd0,0x36,0x8f,0xcd,0xd8,0x6d,0x10,0x5b,0x45,0xf0,0xab,0x06,0xd8,0xc8,0xcc,0xb6,0x31,0x20,0x7b,0x4c,0xa1,0xed,0x09,0xda,0x2f,0x41]);
 		let bond_extra_topic: H256 = H256::from([0xd5,0xcf,0x55,0x59,0xea,0x79,0x35,0x4a,0x05,0x85,0xe5,0x2a,0x88,0xb0,0x55,0x19,0x5f,0x5e,0x50,0xbf,0xb9,0x4e,0x13,0x6b,0x51,0x95,0x35,0xd9,0x05,0xb2,0xbc,0x4e]);
 		let nominate_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
 
-		let validate_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
-		let set_keys_topic: H256 = H256::from(array_bytes::hex2array("0x8d444e2ea3f63f012f0eca4468038bb2dac5e4ceb55c5813b9288a988ad7e918").unwrap());
+		let validate_topic: H256 = H256::from(array_bytes::hex2array("0xf2541304dbc91a7f4529ea605e36842d2537d7849d9d78d2b9faa18e6219b5c1").unwrap());
+		let set_keys_topic: H256 = H256::from(array_bytes::hex2array("0x07169a9e666e0e5e14d848b333483a55008ec5865c52c0e6ab8352279bbfb81c").unwrap());
 
 		let validator: AccountId32 = AccountId32::from(
 			[0x24,0xa1,0xbe,0xe3,0x13,0x8f,0xd6,0x7f,0x3d,0x19,0x56,0xf8,0xc2,0x83,0x33,0x53,0x7d,0x1d,0xcd,0x38,0xa4,0x82,0x57,0xeb,0xdb,0xec,0xfb,0x77,0xd7,0x44,0xf7,0x41]);
 
-	let staking_account = <T as Config>::AddressMapping::into_account_id(sender);
+		let staking_account = <T as Config>::AddressMapping::into_account_id(sender);
 		log::info!("Sender: {:?}, staking: {:?} ", sender, staking_account);
 		log::info!("Logs: {:?}", res.logs);
 		for staking_log in res.logs.iter()
@@ -862,7 +863,10 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 							})?
 						),
 						&staking_account,
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to bond token: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&nominate_topic) => {
 					log::info!("Nominated: staking_log: {:?}", staking_log);
@@ -879,7 +883,10 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 					<T as Config>::Staking::nominate(
 						&staking_account,
 						validators,
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to nominate token: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&bond_extra_topic) => {
 					log::info!("Extra bonded: staking_log: {:?}", staking_log);
@@ -894,7 +901,10 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 								DispatchErrorWithPostInfo::from("Wrong bond extra event")
 							})?
 						)
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to extra bond token: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&unbond_topic) => {
 					log::info!("Unbonded: staking_log: {:?}", staking_log);
@@ -909,7 +919,10 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 								DispatchErrorWithPostInfo::from("Wrong Unbonded unbond event")
 							})?
 						)
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to unbond token: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&withdraw_unbonded_topic) => {
 					let value = log.topics[1].0;
@@ -924,29 +937,43 @@ fn hook_staking(sender: Address, res: &CallInfo, value: U256) -> Result<(), Disp
 								DispatchErrorWithPostInfo::from("Wrong withdraw unbond event")
 							})?
 						)
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to withdraw token: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&validate_topic) => {
 					let value = log.topics[1].0;
-					log::info!("Withdraw_unbonded: staking_log: {:?}", staking_log);
+					log::info!("Validate: staking_log: {:?}", staking_log);
 					<T as Config>::Staking::validate(
 					&staking_account,
-					)?;
+					).map_err(|err| {
+						log::error!("Failed to validate: {:?}", err);
+						err
+					})?;
 				}
 				log if log.topics.contains(&set_keys_topic) => {
-					let value = log.topics[1].0;
-					log::info!("Withdraw_unbonded: staking_log: {:?}", staking_log);
-					<T as Config>::Staking::withdraw_unbonded(
-						staking_account.clone(),
-						u32::from_be_bytes(value.chunks(4).nth(7)
-							.ok_or(DispatchErrorWithPostInfo::from("Wrong withdraw unbond event"))?
-							.try_into()
+					log::info!("Set keys: staking_log: {:?}", staking_log);
+
+					let raw_log = ethabi::RawLog::from((log.topics.clone(), log.data.clone()));
+					let setted_keys = events::setted_keys::parse_log(raw_log)
+						.map_err(|err| {
+							log::error!("Error Set keys: {:?}", err);
+							DispatchErrorWithPostInfo::from("Wrong SetKeys event")
+						})?;
+
+					<T as Config>::SetKeys::set_keys(
+						&staking_account,
+						<T as ConfigSession>::Keys::decode(&mut setted_keys.param1.as_slice())
 							.map_err(|err| {
-								log::error!("Error Withdraw_unbonded: {:?}", err);
-								DispatchErrorWithPostInfo::from("Wrong withdraw unbond event")
-							})?
-						)
-					)?;
+								log::error!("Error parse keys: {:?}", err);
+								DispatchErrorWithPostInfo::from("Wrong SetKeys event")
+							 })?,
+						setted_keys.param2,
+					).map_err(|err| {
+						log::error!("Failed to set keys: {:?}", err);
+						err
+					})?;
 				}
 				_ => {}
 			}

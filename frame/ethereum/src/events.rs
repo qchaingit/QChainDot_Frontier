@@ -206,6 +206,7 @@ pub mod setted_keys {
     use crate::events::SettedKeys;
     use sp_std::borrow::ToOwned;
     use ethabi;
+    use frame_support::log;
     use crate::Box;
     use super::INTERNAL_ERR;
     pub fn event() -> ethabi::Event {
@@ -214,17 +215,17 @@ pub mod setted_keys {
             inputs: <[_]>::into_vec(
                     Box::new([
                     ethabi::EventParam {
-                        name: "".to_owned(),
+                        name: "sender".to_owned(),
                         kind: ethabi::ParamType::Address,
                         indexed: false,
                     },
                     ethabi::EventParam {
-                        name: "".to_owned(),
+                        name: "keys".to_owned(),
                         kind: ethabi::ParamType::Bytes,
                         indexed: false,
                     },
                     ethabi::EventParam {
-                        name: "".to_owned(),
+                        name: "proof".to_owned(),
                         kind: ethabi::ParamType::Bytes,
                         indexed: false,
                     },
@@ -247,7 +248,9 @@ pub mod setted_keys {
         log: ethabi::RawLog,
     ) -> ethabi::Result<SettedKeys> {
         let e = event();
+        log::info!("Raw Logs: {:?}", log);
         let mut log = e.parse_log(log)?.params.into_iter();
+        log::info!("Logs: {:?}", log);
         let result = SettedKeys {
             param0: log
                 .next()

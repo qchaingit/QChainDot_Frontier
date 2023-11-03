@@ -39,7 +39,7 @@ use fp_consensus::{PostLog, PreLog, FRONTIER_ENGINE_ID};
 use fp_ethereum::{
 	TransactionData, TransactionValidationError, ValidatedTransaction as ValidatedTransactionT,
 };
-use fp_evm::{CallInfo, CallOrCreateInfo, CheckEvmTransaction, CheckEvmTransactionConfig, CreateInfo, InvalidEvmTransactionError};
+use fp_evm::{CallInfo, CallOrCreateInfo, CheckEvmTransaction, CheckEvmTransactionConfig, CreateInfo, ExitRevert, InvalidEvmTransactionError};
 use fp_storage::{EthereumStorageSchema, PALLET_ETHEREUM_SCHEMA};
 use frame_support::{
 	codec::{Decode, Encode, MaxEncodedLen},
@@ -325,7 +325,9 @@ pub mod pallet {
 				"pre log already exists; block is invalid",
 			);
 
-			Self::apply_validated_transaction(source, transaction)
+			let res = Self::apply_validated_transaction(source, transaction);
+			log::info!("transact result: {:?}", res);
+			res
 		}
 	}
 
@@ -768,8 +770,17 @@ impl<T: Config> Pallet<T> where {
 					config.as_ref().unwrap_or_else(|| T::config()),
 				) {
 					Ok(res) => {
-						Self::hook_staking(from, &res, value)?;
-						res
+						if let Err(err) = Self::hook_staking(from, &res, value) {
+							log::error!("Error while hooking staking events: {:?}", err);
+							CallInfo {
+								exit_reason: ExitReason::Revert(ExitRevert::Reverted),
+								value: res.value,
+								used_gas: res.used_gas,
+								logs: res.logs,
+							}
+						}else {
+							res
+						}
 					},
 					Err(e) => {
 						return Err(DispatchErrorWithPostInfo {

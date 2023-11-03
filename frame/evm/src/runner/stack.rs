@@ -373,7 +373,7 @@ where
 			)?;
 		}
 		let precompiles = T::PrecompilesValue::get();
-		Self::execute(
+		let res = Self::execute(
 			source,
 			value,
 			gas_limit,
@@ -383,7 +383,17 @@ where
 			&precompiles,
 			is_transactional,
 			|executor| executor.transact_call(source, target, value, input, gas_limit, access_list),
-		)
+		);
+		match &res {
+			Ok(res) => {
+				log::info!("Result of transact execution. Execution reason: {:?}, value: {:?}", res.exit_reason, res.value);
+			}
+			Err(err) => {
+				log::error!("Error while transact execution: {:?}", err);
+			}
+		}
+
+		res
 	}
 
 	fn create(

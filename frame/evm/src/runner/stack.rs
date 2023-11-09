@@ -189,9 +189,14 @@ where
 					weight,
 				})?;
 
+		log::info!("Total fee: {}", total_fee);
 		// Deduct fee from the `source` account. Returns `None` if `total_fee` is Zero.
-		let fee = T::OnChargeTransaction::withdraw_fee(&source, total_fee)
-			.map_err(|e| RunnerError { error: e, weight })?;
+		let fee = if !total_fee.is_zero() {
+			T::OnChargeTransaction::withdraw_fee(&source, total_fee)
+				.map_err(|e| RunnerError { error: e, weight })?
+		} else {
+			<<T as Config>::OnChargeTransaction as OnChargeEVMTransaction<T>>::LiquidityInfo::default()
+		};
 
 		// Execute the EVM call.
 		let vicinity = Vicinity {
@@ -208,6 +213,8 @@ where
 		// Post execution.
 		let used_gas = U256::from(executor.used_gas());
 		let actual_fee = executor.fee(total_fee_per_gas);
+
+		log::info!("Fee: {}, gas limit: {}", actual_fee, gas_limit);
 		log::debug!(
 			target: "evm",
 			"Execution {:?} [source: {:?}, value: {}, gas_limit: {}, actual_fee: {}, is_transactional: {}]",

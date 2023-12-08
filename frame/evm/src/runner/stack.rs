@@ -150,6 +150,7 @@ where
 			});
 		}
 
+		log::info!("max fee per gas: {:?} max prior {:?} is trans {}, base fee {:?}", max_fee_per_gas, max_priority_fee_per_gas, is_transactional, base_fee);
 		let (total_fee_per_gas, _actual_priority_fee_per_gas) =
 			match (max_fee_per_gas, max_priority_fee_per_gas, is_transactional) {
 				// Zero max_fee_per_gas for validated transactional calls exist in XCM -> EVM
@@ -179,7 +180,7 @@ where
 					})
 				}
 			};
-
+		log::info!("Total fee per gas: {}", total_fee_per_gas);
 		// After eip-1559 we make sure the account can pay both the evm execution and priority fees.
 		let total_fee =
 			total_fee_per_gas

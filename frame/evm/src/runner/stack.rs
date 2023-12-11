@@ -150,50 +150,9 @@ where
 			});
 		}
 
-		log::info!("max fee per gas: {:?} max prior {:?} is trans {}, base fee {:?}", max_fee_per_gas, max_priority_fee_per_gas, is_transactional, base_fee);
-		let (total_fee_per_gas, _actual_priority_fee_per_gas) =
-			match (max_fee_per_gas, max_priority_fee_per_gas, is_transactional) {
-				// Zero max_fee_per_gas for validated transactional calls exist in XCM -> EVM
-				// because fees are already withdrawn in the xcm-executor.
-				(Some(max_fee), _, true) if max_fee.is_zero() => (U256::zero(), U256::zero()),
-				// With no tip, we pay exactly the base_fee
-				(Some(_), None, _) => (base_fee, U256::zero()),
-				// With tip, we include as much of the tip on top of base_fee that we can, never
-				// exceeding max_fee_per_gas
-				(Some(max_fee_per_gas), Some(max_priority_fee_per_gas), _) => {
-					let actual_priority_fee_per_gas = max_fee_per_gas
-						.saturating_sub(base_fee)
-						.min(max_priority_fee_per_gas);
-					(
-						base_fee.saturating_add(actual_priority_fee_per_gas),
-						actual_priority_fee_per_gas,
-					)
-				}
-				// Gas price check is skipped for non-transactional calls that don't
-				// define a `max_fee_per_gas` input.
-				(None, _, false) => (Default::default(), U256::zero()),
-				// Unreachable, previously validated. Handle gracefully.
-				_ => {
-					return Err(RunnerError {
-						error: Error::<T>::GasPriceTooLow,
-						weight,
-					})
-				}
-			};
-		log::info!("Total fee per gas: {}", total_fee_per_gas);
-		// After eip-1559 we make sure the account can pay both the evm execution and priority fees.
-		let total_fee =
-			total_fee_per_gas
-				.checked_mul(U256::from(gas_limit))
-				.ok_or(RunnerError {
-					error: Error::<T>::FeeOverflow,
-					weight,
-				})?;
-
-		log::info!("Total fee: {}", total_fee);
 		// Deduct fee from the `source` account. Returns `None` if `total_fee` is Zero.
-		let fee = if !total_fee.is_zero() {
-			T::OnChargeTransaction::withdraw_fee(&source, total_fee)
+		let fee = if is_transactional {
+			T::OnChargeTransaction::withdraw_fee(&source, U256::zero())
 				.map_err(|e| RunnerError { error: e, weight })?
 		} else {
 			<<T as Config>::OnChargeTransaction as OnChargeEVMTransaction<T>>::LiquidityInfo::default()
@@ -213,17 +172,14 @@ where
 
 		// Post execution.
 		let used_gas = U256::from(executor.used_gas());
-		let actual_fee = executor.fee(total_fee_per_gas);
 
-		log::info!("Fee: {}, gas limit: {}", actual_fee, gas_limit);
 		log::debug!(
 			target: "evm",
-			"Execution {:?} [source: {:?}, value: {}, gas_limit: {}, actual_fee: {}, is_transactional: {}]",
+			"Execution {:?} [source: {:?}, value: {}, gas_limit: {}, is_transactional: {}]",
 			reason,
 			source,
 			value,
 			gas_limit,
-			actual_fee,
 			is_transactional
 		);
 		// The difference between initially withdrawn and the actual cost is refunded.
@@ -250,7 +206,7 @@ where
 		let actual_priority_fee = T::OnChargeTransaction::correct_and_deposit_fee(
 			&source,
 			// Actual fee after evm execution, including tip.
-			actual_fee,
+			U256::zero(),
 			// Base fee.
 			executor.fee(base_fee),
 			// Fee initially withdrawn.

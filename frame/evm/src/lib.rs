@@ -205,6 +205,8 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			T::CallOrigin::ensure_address_origin(&source, origin)?;
 
+			log::info!("Evm call: {}, max fee: {:?}, max priority fee: {:?}", gas_limit, max_fee_per_gas, max_priority_fee_per_gas);
+
 			let is_transactional = true;
 			let validate = true;
 			let info = match T::Runner::call(

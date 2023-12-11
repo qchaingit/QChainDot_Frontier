@@ -691,6 +691,7 @@ impl<T: Config> Pallet<T> where {
 	) -> Result<(Option<H160>, Option<H160>, CallOrCreateInfo),
 		DispatchErrorWithPostInfo<PostDispatchInfo>,
 	> {
+		log::info!("Execute from: {:?} transaction: {:?}", from, transaction);
 		let (
 			input,
 			value,
